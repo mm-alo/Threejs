@@ -61,8 +61,14 @@ table.add(tableEdges);
 const netGeometry = new THREE.PlaneGeometry(3, 0.5, 20, 10);
 const netMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, wireframe: true });
 const net = new THREE.Mesh(netGeometry, netMaterial);
-net.position.set(0, 0.25, 0);
 scene.add(net);
+
+const ballBody = new CANNON.Body({
+    mass: 0.2,
+    shape: new CANNON.Sphere(0.1),
+    position: new CANNON.Vec3(0, 1, 0)
+});
+world.addBody(ballBody);
 
 // Ball
 const ballGeometry = new THREE.SphereGeometry(0.1, 32, 32);
@@ -85,8 +91,8 @@ function createPaddle(color, controller) {
     paddleHandle.position.set(0, -0.15, 0);
     
     const paddleBlade = new THREE.Mesh(paddleBladeGeometry, paddleMaterial);
-    paddleBlade.rotation.z = Math.PI / 2;
-    paddleBlade.position.set(0, 0, 0.15);
+    paddleBlade.rotation.x = Math.PI / 2; // Adjusted to face correctly
+    paddleBlade.position.set(0, 0.15, 0);
     
     const paddle = new THREE.Group();
     paddle.add(paddleHandle);
@@ -139,6 +145,7 @@ scene.add(directionalLight);
 function animate() {
     renderer.setAnimationLoop(() => {
         world.step(1 / 60);
+        ball.position.copy(ballBody.position);
         renderer.render(scene, camera);
     });
 }
