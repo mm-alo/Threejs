@@ -1,7 +1,6 @@
 import * as THREE from 'three';
-// import WebGL from 'three/addons/capabilities/WebGL.js';
-import { VRButton } from 'three/addons/webxr/VRButton.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { VRButton } from 'three/examples/jsm/webxr/VRButton.js';
 import * as CANNON from 'cannon-es';
 
 // Scene setup
@@ -57,25 +56,29 @@ const tableEdgesMaterial = new THREE.LineBasicMaterial({ color: 0x9400D3 });
 const tableEdges = new THREE.LineSegments(tableEdgesGeometry, tableEdgesMaterial);
 table.add(tableEdges);
 
-// Net same width as table, rotated to match
+// Net
 const netGeometry = new THREE.PlaneGeometry(3, 0.5, 20, 10);
 const netMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, wireframe: true });
 const net = new THREE.Mesh(netGeometry, netMaterial);
 scene.add(net);
 
-const ballBody = new CANNON.Body({
-    mass: 0.2,
-    shape: new CANNON.Sphere(0.1),
-    position: new CANNON.Vec3(0, 1, 0)
-});
-world.addBody(ballBody);
-
-// Ball
+// Ball with physics
 const ballGeometry = new THREE.SphereGeometry(0.1, 32, 32);
 const ballMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
 const ball = new THREE.Mesh(ballGeometry, ballMaterial);
-ball.position.set(0, 0.2, 0);
 scene.add(ball);
+
+const ballBody = new CANNON.Body({
+    mass: 0.2,
+    shape: new CANNON.Sphere(0.1),
+    position: new CANNON.Vec3(0, 1.5, 1),
+    restitution: 0.9,
+    type: CANNON.Body.KINEMATIC 
+});
+ballBody.velocity.set(0, 0, 0);
+world.addBody(ballBody);
+
+let ballPaused = true;
 
 // Paddle
 const controller1 = renderer.xr.getController(0);
@@ -91,48 +94,35 @@ function createPaddle(color, controller) {
     paddleHandle.position.set(0, -0.15, 0);
     
     const paddleBlade = new THREE.Mesh(paddleBladeGeometry, paddleMaterial);
-    paddleBlade.rotation.x = Math.PI / 2; // Adjusted to face correctly
+    paddleBlade.rotation.x = Math.PI / 2;
     paddleBlade.position.set(0, 0.15, 0);
     
     const paddle = new THREE.Group();
     paddle.add(paddleHandle);
     paddle.add(paddleBlade);
     controller.add(paddle);
-    return paddle;
+    
+    return { paddle, controller };
 }
 
-createPaddle(0xff0000, controller1);
-createPaddle(0x0000ff, controller2);
+const playerPaddle = createPaddle(0xff0000, controller1);
+const opponentPaddle = createPaddle(0x0000ff, controller2);
 
-
-// Additional objects (chairs, scoreboard, banners)
-const scoreboardGeometry = new THREE.BoxGeometry(1.5, 0.75, 0.1);
-const scoreboardMaterial = new THREE.MeshStandardMaterial({ color: 0x222222 });
-const scoreboard = new THREE.Mesh(scoreboardGeometry, scoreboardMaterial);
-scoreboard.position.set(0, 2, -4.4);
-scene.add(scoreboard);
-
-// Score tracker
-const scoreCanvas = document.createElement('canvas');
-scoreCanvas.width = 256;
-scoreCanvas.height = 128;
-const scoreContext = scoreCanvas.getContext('2d');
-scoreContext.fillStyle = 'white';
-scoreContext.font = '40px Arial';
-scoreContext.fillText('0 - 0', 80, 80);
-
-const scoreTexture = new THREE.CanvasTexture(scoreCanvas);
-const scoreMaterial = new THREE.MeshBasicMaterial({ map: scoreTexture });
-const scoreMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.5), scoreMaterial);
-scoreMesh.position.set(0, 2, -4.35);
-scene.add(scoreMesh);
-
-const bannerGeometry = new THREE.PlaneGeometry(4, 1.5);
-const bannerMaterial = new THREE.MeshStandardMaterial({ color: 0xffd700 });
-const banner = new THREE.Mesh(bannerGeometry, bannerMaterial);
-banner.position.set(0, 3.5, -4.4);
-scene.add(banner);
-
+// Detect paddle-ball collision
+function checkCollision() {
+    [playerPaddle, opponentPaddle].forEach(({ paddle }) => {
+        const paddlePos = new CANNON.Vec3(paddle.position.x, paddle.position.y, paddle.position.z);
+        const distance = paddlePos.distanceTo(ballBody.position);
+        if (distance < 0.35) {
+            if (ballPaused) {
+                ballPaused = false;
+                ballBody.type = CANNON.Body.DYNAMIC;
+            }
+            const direction = new CANNON.Vec3().copy(ballBody.position).vsub(paddlePos).normalize();
+            ballBody.velocity.set(direction.x * 5, direction.y * 5, direction.z * 5);
+        }
+    });
+}
 
 // Lighting
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
@@ -146,6 +136,7 @@ function animate() {
     renderer.setAnimationLoop(() => {
         world.step(1 / 60);
         ball.position.copy(ballBody.position);
+        checkCollision();
         renderer.render(scene, camera);
     });
 }
