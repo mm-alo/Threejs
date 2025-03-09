@@ -5,7 +5,7 @@ import * as CANNON from 'cannon-es';
 
 // Scene setup
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xf5f5f5); // Light gray for a cleaner look
+scene.background = new THREE.Color(0xf5f5f5);
 
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 camera.position.set(0, 1.5, -3);
@@ -20,21 +20,23 @@ document.body.appendChild(renderer.domElement);
 // Physics world
 const world = new CANNON.World();
 world.gravity.set(0, -9.82, 0);
+world.broadphase = new CANNON.NaiveBroadphase();
 
 // Room setup
 const roomMaterial = new THREE.MeshStandardMaterial({ color: 0xe0e0e0 });
 const walls = [
-    new THREE.Mesh(new THREE.BoxGeometry(14, 5, 0.1), roomMaterial), // Back wall
-    new THREE.Mesh(new THREE.BoxGeometry(14, 5, 0.1), roomMaterial), // Front wall
-    new THREE.Mesh(new THREE.BoxGeometry(0.1, 5, 8), roomMaterial), // Left wall
-    new THREE.Mesh(new THREE.BoxGeometry(0.1, 5, 8), roomMaterial), // Right wall
-    new THREE.Mesh(new THREE.BoxGeometry(14, 0.1, 8), roomMaterial), // Ceiling
+    new THREE.Mesh(new THREE.BoxGeometry(14, 5, 0.1), roomMaterial),
+    new THREE.Mesh(new THREE.BoxGeometry(14, 5, 0.1), roomMaterial),
+    new THREE.Mesh(new THREE.BoxGeometry(0.1, 5, 8), roomMaterial),
+    new THREE.Mesh(new THREE.BoxGeometry(0.1, 5, 8), roomMaterial),
+    new THREE.Mesh(new THREE.BoxGeometry(14, 0.1, 8), roomMaterial),
 ];
 walls[0].position.set(0, 2.5, -4.5);
 walls[1].position.set(0, 2.5, 4.5);
 walls[2].position.set(-7, 2.5, 0);
 walls[3].position.set(7, 2.5, 0);
 walls[4].position.set(0, 5, 0);
+walls[3].material.color.set(0xe0e0e0);
 walls.forEach(wall => scene.add(wall));
 
 // Floor
@@ -51,18 +53,14 @@ const table = new THREE.Mesh(tableGeometry, tableMaterial);
 table.position.y = 0;
 scene.add(table);
 
-const tableEdgesGeometry = new THREE.EdgesGeometry(tableGeometry);
-const tableEdgesMaterial = new THREE.LineBasicMaterial({ color: 0x9400D3 });
-const tableEdges = new THREE.LineSegments(tableEdgesGeometry, tableEdgesMaterial);
-table.add(tableEdges);
-
-// Table physics
 const tableBody = new CANNON.Body({
     mass: 0,
     shape: new CANNON.Box(new CANNON.Vec3(1.5, 0.1, 3.5)),
     position: new CANNON.Vec3(0, 0, 0)
 });
 world.addBody(tableBody);
+
+
 
 // Net
 const netGeometry = new THREE.PlaneGeometry(3, 0.5, 20, 10);
@@ -77,14 +75,15 @@ const ball = new THREE.Mesh(ballGeometry, ballMaterial);
 scene.add(ball);
 
 const ballBody = new CANNON.Body({
-    mass: 0.2,
+    mass: 0.1,
     shape: new CANNON.Sphere(0.1),
     position: new CANNON.Vec3(0, 1.5, 1),
     restitution: 0.9
 });
 world.addBody(ballBody);
 
-// Paddle
+
+// Paddles
 const controller1 = renderer.xr.getController(0);
 const controller2 = renderer.xr.getController(1);
 scene.add(controller1, controller2);
@@ -104,40 +103,54 @@ function createPaddle(color, controller) {
     const paddle = new THREE.Group();
     paddle.add(paddleHandle);
     paddle.add(paddleBlade);
-    controller.add(paddle);
+    scene.add(paddle);
     
     const paddleBody = new CANNON.Body({
-        mass: 0,
-        shape: new CANNON.Box(new CANNON.Vec3(0.3, 0.02, 0.3)),
+        mass: 0.1,
+        shape: new CANNON.Cylinder(0.3, 0.3, 0.02, 32),
+        position: new CANNON.Vec3(0, 1, 0)
     });
     world.addBody(paddleBody);
-    
+
     return { paddle, paddleBody, controller };
 }
 
 const playerPaddle = createPaddle(0xff0000, controller1);
 const opponentPaddle = createPaddle(0x0000ff, controller2);
 
-// Sync paddles with controllers
-function updatePaddlePositions() {
+// Paddle Physics
+function updatePaddlePhysics() {
     [playerPaddle, opponentPaddle].forEach(({ paddle, paddleBody, controller }) => {
-        const pos = new THREE.Vector3();
-        controller.getWorldPosition(pos);
-        paddle.position.copy(pos);
-        paddleBody.position.set(pos.x, pos.y, pos.z);
+        const position = new THREE.Vector3();
+        controller.getWorldPosition(position);
+        paddle.position.copy(position);
+        paddleBody.position.set(position.x, position.y, position.z);
     });
 }
 
-// Detect paddle-ball collision
-function checkCollision() {
+// Ball physics
+ballBody.addEventListener('collide', (event) => {
     [playerPaddle, opponentPaddle].forEach(({ paddleBody }) => {
-        const distance = paddleBody.position.distanceTo(ballBody.position);
-        if (distance < 0.35) {
-            const direction = new CANNON.Vec3().copy(ballBody.position).vsub(paddleBody.position).normalize();
-            ballBody.velocity.set(direction.x * 5, direction.y * 5, direction.z * 5);
+        if (event.contact.bi === paddleBody || event.contact.bj === paddleBody) {
+            const impactDirection = new CANNON.Vec3().copy(ballBody.position).vsub(paddleBody.position).normalize();
+            const newVelocity = new CANNON.Vec3(
+                impactDirection.x * 5,
+                Math.max(Math.abs(impactDirection.y) * 5, 2),
+                impactDirection.z * 5
+            );
+            if (!isNaN(newVelocity.x) && !isNaN(newVelocity.y) && !isNaN(newVelocity.z)) {
+                ballBody.velocity.set(newVelocity.x, newVelocity.y, newVelocity.z);
+            }
         }
     });
-}
+});
+
+// ball bounce
+ballBody.addEventListener('collide', (event) => {
+    if (event.contact.bi === tableBody || event.contact.bj === tableBody) {
+        ballBody.velocity.y = Math.abs(ballBody.velocity.y) * 0.9;
+    }
+});
 
 // Lighting
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
@@ -150,9 +163,8 @@ scene.add(directionalLight);
 function animate() {
     renderer.setAnimationLoop(() => {
         world.step(1 / 60);
-        updatePaddlePositions();
+        updatePaddlePhysics();
         ball.position.copy(ballBody.position);
-        checkCollision();
         renderer.render(scene, camera);
     });
 }
