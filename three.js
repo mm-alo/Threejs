@@ -44,7 +44,7 @@ const floor = new THREE.Mesh(floorGeometry, floorMaterial);
 floor.rotation.x = -Math.PI / 2;
 scene.add(floor);
 
-// Table rotated to Y-axis
+// Table
 const tableGeometry = new THREE.BoxGeometry(3, 0.2, 7);
 const tableMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
 const table = new THREE.Mesh(tableGeometry, tableMaterial);
@@ -55,6 +55,14 @@ const tableEdgesGeometry = new THREE.EdgesGeometry(tableGeometry);
 const tableEdgesMaterial = new THREE.LineBasicMaterial({ color: 0x9400D3 });
 const tableEdges = new THREE.LineSegments(tableEdgesGeometry, tableEdgesMaterial);
 table.add(tableEdges);
+
+// Table physics
+const tableBody = new CANNON.Body({
+    mass: 0,
+    shape: new CANNON.Box(new CANNON.Vec3(1.5, 0.1, 3.5)),
+    position: new CANNON.Vec3(0, 0, 0)
+});
+world.addBody(tableBody);
 
 // Net
 const netGeometry = new THREE.PlaneGeometry(3, 0.5, 20, 10);
@@ -72,13 +80,9 @@ const ballBody = new CANNON.Body({
     mass: 0.2,
     shape: new CANNON.Sphere(0.1),
     position: new CANNON.Vec3(0, 1.5, 1),
-    restitution: 0.9,
-    type: CANNON.Body.KINEMATIC 
+    restitution: 0.9
 });
-ballBody.velocity.set(0, 0, 0);
 world.addBody(ballBody);
-
-let ballPaused = true;
 
 // Paddle
 const controller1 = renderer.xr.getController(0);
@@ -102,23 +106,34 @@ function createPaddle(color, controller) {
     paddle.add(paddleBlade);
     controller.add(paddle);
     
-    return { paddle, controller };
+    const paddleBody = new CANNON.Body({
+        mass: 0,
+        shape: new CANNON.Box(new CANNON.Vec3(0.3, 0.02, 0.3)),
+    });
+    world.addBody(paddleBody);
+    
+    return { paddle, paddleBody, controller };
 }
 
 const playerPaddle = createPaddle(0xff0000, controller1);
 const opponentPaddle = createPaddle(0x0000ff, controller2);
 
+// Sync paddles with controllers
+function updatePaddlePositions() {
+    [playerPaddle, opponentPaddle].forEach(({ paddle, paddleBody, controller }) => {
+        const pos = new THREE.Vector3();
+        controller.getWorldPosition(pos);
+        paddle.position.copy(pos);
+        paddleBody.position.set(pos.x, pos.y, pos.z);
+    });
+}
+
 // Detect paddle-ball collision
 function checkCollision() {
-    [playerPaddle, opponentPaddle].forEach(({ paddle }) => {
-        const paddlePos = new CANNON.Vec3(paddle.position.x, paddle.position.y, paddle.position.z);
-        const distance = paddlePos.distanceTo(ballBody.position);
+    [playerPaddle, opponentPaddle].forEach(({ paddleBody }) => {
+        const distance = paddleBody.position.distanceTo(ballBody.position);
         if (distance < 0.35) {
-            if (ballPaused) {
-                ballPaused = false;
-                ballBody.type = CANNON.Body.DYNAMIC;
-            }
-            const direction = new CANNON.Vec3().copy(ballBody.position).vsub(paddlePos).normalize();
+            const direction = new CANNON.Vec3().copy(ballBody.position).vsub(paddleBody.position).normalize();
             ballBody.velocity.set(direction.x * 5, direction.y * 5, direction.z * 5);
         }
     });
@@ -135,6 +150,7 @@ scene.add(directionalLight);
 function animate() {
     renderer.setAnimationLoop(() => {
         world.step(1 / 60);
+        updatePaddlePositions();
         ball.position.copy(ballBody.position);
         checkCollision();
         renderer.render(scene, camera);
