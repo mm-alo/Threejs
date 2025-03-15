@@ -127,7 +127,7 @@ function automateOpponentPaddle() {
     const targetPosition = ballBody.position.clone();
     opponentPaddle.paddle.position.x = targetPosition.x;
     opponentPaddle.paddle.position.y = 1; 
-    opponentPaddle.paddle.position.z = targetPosition.z + 1;
+    opponentPaddle.paddle.position.z = targetPosition.z - 1;
     opponentPaddle.paddleBody.position.copy(opponentPaddle.paddle.position);
 }
 
