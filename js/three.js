@@ -60,13 +60,19 @@ const tableBody = new CANNON.Body({
 });
 world.addBody(tableBody);
 
-
-
 // Net
 const netGeometry = new THREE.PlaneGeometry(3, 0.5, 20, 10);
 const netMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, wireframe: true });
 const net = new THREE.Mesh(netGeometry, netMaterial);
+net.position.set(0, 0.5, 0);
 scene.add(net);
+
+const netBody = new CANNON.Body({
+    mass: 0,
+    shape: new CANNON.Box(new CANNON.Vec3(1.5, 0.25, 0.05)),
+    position: new CANNON.Vec3(0, 0.5, 0)
+});
+world.addBody(netBody);
 
 // Ball with physics
 const ballGeometry = new THREE.SphereGeometry(0.1, 32, 32);
@@ -82,7 +88,6 @@ const ballBody = new CANNON.Body({
 });
 world.addBody(ballBody);
 
-
 // Paddles
 const controller1 = renderer.xr.getController(0);
 const controller2 = renderer.xr.getController(1);
@@ -92,19 +97,19 @@ function createPaddle(color, controller) {
     const paddleHandleGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.3, 32);
     const paddleBladeGeometry = new THREE.CylinderGeometry(0.3, 0.3, 0.02, 32);
     const paddleMaterial = new THREE.MeshStandardMaterial({ color });
-    
+
     const paddleHandle = new THREE.Mesh(paddleHandleGeometry, paddleMaterial);
     paddleHandle.position.set(0, -0.15, 0);
-    
+
     const paddleBlade = new THREE.Mesh(paddleBladeGeometry, paddleMaterial);
     paddleBlade.rotation.x = Math.PI / 2;
     paddleBlade.position.set(0, 0.15, 0);
-    
+
     const paddle = new THREE.Group();
     paddle.add(paddleHandle);
     paddle.add(paddleBlade);
     scene.add(paddle);
-    
+
     const paddleBody = new CANNON.Body({
         mass: 0.1,
         shape: new CANNON.Cylinder(0.3, 0.3, 0.02, 32),
@@ -118,36 +123,30 @@ function createPaddle(color, controller) {
 const playerPaddle = createPaddle(0xff0000, controller1);
 const opponentPaddle = createPaddle(0x0000ff, controller2);
 
-// Paddle Physics
-function updatePaddlePhysics() {
-    [playerPaddle, opponentPaddle].forEach(({ paddle, paddleBody, controller }) => {
-        const position = new THREE.Vector3();
-        controller.getWorldPosition(position);
-        paddle.position.copy(position);
-        paddleBody.position.set(position.x, position.y, position.z);
-    });
+function automateOpponentPaddle() {
+    const targetPosition = ballBody.position.clone();
+    opponentPaddle.paddle.position.x = targetPosition.x;
+    opponentPaddle.paddle.position.y = 1; 
+    opponentPaddle.paddle.position.z = targetPosition.z + 1;
+    opponentPaddle.paddleBody.position.copy(opponentPaddle.paddle.position);
 }
 
-// Ball physics
-ballBody.addEventListener('collide', (event) => {
-    [playerPaddle, opponentPaddle].forEach(({ paddleBody }) => {
-        if (event.contact.bi === paddleBody || event.contact.bj === paddleBody) {
-            const impactDirection = new CANNON.Vec3().copy(ballBody.position).vsub(paddleBody.position).normalize();
-            const newVelocity = new CANNON.Vec3(
-                impactDirection.x * 5,
-                Math.max(Math.abs(impactDirection.y) * 5, 2),
-                impactDirection.z * 5
-            );
-            if (!isNaN(newVelocity.x) && !isNaN(newVelocity.y) && !isNaN(newVelocity.z)) {
-                ballBody.velocity.set(newVelocity.x, newVelocity.y, newVelocity.z);
-            }
-        }
-    });
-});
+// Paddle Physics
+function updatePaddlePhysics() {
+    const position = new THREE.Vector3();
+    controller1.getWorldPosition(position);
+    playerPaddle.paddle.position.copy(position);
+    playerPaddle.paddleBody.position.set(position.x, position.y, position.z);
 
-// ball bounce
+    automateOpponentPaddle();
+}
+
+// Ball collision handling
 ballBody.addEventListener('collide', (event) => {
-    if (event.contact.bi === tableBody || event.contact.bj === tableBody) {
+    const { bi, bj } = event.contact;
+    if (bi === netBody || bj === netBody) {
+        ballBody.velocity.z *= -1;
+    } else if (bi === tableBody || bj === tableBody) {
         ballBody.velocity.y = Math.abs(ballBody.velocity.y) * 0.9;
     }
 });
